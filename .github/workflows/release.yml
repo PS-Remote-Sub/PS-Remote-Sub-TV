@@ -28,9 +28,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - uses: android-actions/setup-android@v3
+      # Use the Android SDK preinstalled on ubuntu-latest (ANDROID_HOME) and accept licenses ourselves;
+      # android-actions/setup-android@v3 failed on `sdkmanager --licenses`.
       - name: Install SDK packages
-        run: sdkmanager "platforms;android-37" "build-tools;${BUILD_TOOLS}"
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "platforms;android-37" "build-tools;${BUILD_TOOLS}"
       - name: Decode keystore
         env:
           PSRS_TV_KEYSTORE_BASE64: ${{ secrets.PSRS_TV_KEYSTORE_BASE64 }}

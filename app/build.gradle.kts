@@ -22,7 +22,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 2
-        versionName = "1.0"
+        versionName = "1.0.0"
     }
 
     val releaseStore = signingValue("storeFile", "PSRS_TV_KEYSTORE")
