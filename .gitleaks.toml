@@ -1,0 +1,5 @@
+# Gitleaks config: built-in rules plus project allowlist.
+# To silence a false positive, add a path regex or a literal under [allowlist],
+# or put `gitleaks:allow` in a comment on the offending line.
+[extend]
+useDefault = true
