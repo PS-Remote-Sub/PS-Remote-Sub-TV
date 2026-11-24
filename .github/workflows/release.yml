@@ -49,7 +49,7 @@ jobs:
           PSRS_TV_KEYSTORE_PASSWORD: ${{ secrets.PSRS_TV_KEYSTORE_PASSWORD }}
           PSRS_TV_KEY_ALIAS: ${{ secrets.PSRS_TV_KEY_ALIAS }}
           PSRS_TV_KEY_PASSWORD: ${{ secrets.PSRS_TV_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease
+        run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
       - name: Check signature and version
         id: check
         run: |
