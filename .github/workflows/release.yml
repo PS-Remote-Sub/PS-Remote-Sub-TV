@@ -34,7 +34,7 @@ jobs:
         run: |
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null || true
-          "$sdkmanager" "platforms;android-37" "build-tools;${BUILD_TOOLS}"
+          "$sdkmanager" "platforms;android-37.0" "build-tools;${BUILD_TOOLS}"
       - name: Decode keystore
         env:
           PSRS_TV_KEYSTORE_BASE64: ${{ secrets.PSRS_TV_KEYSTORE_BASE64 }}
