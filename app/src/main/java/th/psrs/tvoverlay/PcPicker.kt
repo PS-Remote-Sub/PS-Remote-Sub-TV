@@ -24,4 +24,8 @@ class PcPicker(private var lastId: String?, private val staleMs: Long = 10_000) 
         val fresh = heardPcs.values.filter { nowMs - it.lastHeardMs <= staleMs }
         return (fresh.firstOrNull { it.beacon.id == lastId } ?: fresh.firstOrNull())?.beacon
     }
+
+    /** Every PC heard so far (first-heard order) with how long ago it was last heard, for diagnostics. */
+    @Synchronized fun heardList(nowMs: Long): List<Pair<PcBeacon, Long>> =
+        heardPcs.values.map { it.beacon to (nowMs - it.lastHeardMs) }
 }

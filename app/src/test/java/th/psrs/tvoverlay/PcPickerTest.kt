@@ -51,4 +51,12 @@ class PcPickerTest {
         p.heard(PcBeacon("1", "n", "10.9.9.9", 6000), 50)
         assertEquals(PcBeacon("1", "n", "10.9.9.9", 6000), p.choice(100))
     }
+
+    @Test
+    fun heardList_reportsAges() {
+        val p = PcPicker(null)
+        p.heard(pc("1"), 0); p.heard(pc("2"), 100)
+        val l = p.heardList(300)
+        assertEquals(listOf("1" to 300L, "2" to 200L), l.map { it.first.id to it.second })
+    }
 }
