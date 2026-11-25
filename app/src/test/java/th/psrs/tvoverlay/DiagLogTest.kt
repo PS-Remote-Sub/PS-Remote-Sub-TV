@@ -59,6 +59,18 @@ class DiagLogTest {
     }
 
     @Test
+    fun file_staysUnderCap_whenRollRenameFails() {
+        val dir = tmp.newFolder()
+        // diag.1.log is a non-empty directory: it cannot be deleted and diag.log cannot be renamed onto it.
+        val blocker = File(dir, "diag.1.log").apply { mkdirs() }
+        File(blocker, "keep").writeText("x")
+        val log = core(dir, maxFileBytes = 100)
+        for (i in 1..50) log.log('I', "message number $i")
+        assertTrue(File(dir, "diag.log").length() <= 100 + 60)
+        assertTrue(File(dir, "diag.log").readText().contains("message number 50"))
+    }
+
+    @Test
     fun readAll_startsWithHeader_oldestFirst() {
         val dir = tmp.newFolder()
         val log = core(dir, maxFileBytes = 100)

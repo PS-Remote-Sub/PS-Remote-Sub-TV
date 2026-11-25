@@ -93,7 +93,9 @@ class DiagLogCore(
             if (cur.length() >= maxFileBytes) {
                 val old = File(d, "diag.1.log")
                 old.delete()
-                cur.renameTo(old)
+                // If the roll fails, drop the current file (or empty it) so it never grows past the cap.
+                if (!cur.renameTo(old) && !cur.delete()) cur.writeText("", Charsets.UTF_8)
+                if (cur.length() >= maxFileBytes) return
             }
             cur.appendText(entry + "\n", Charsets.UTF_8)
         } catch (_: Throwable) {
