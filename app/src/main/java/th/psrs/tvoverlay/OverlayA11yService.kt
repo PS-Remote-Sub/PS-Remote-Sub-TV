@@ -122,6 +122,7 @@ class OverlayA11yService : AccessibilityService() {
         main.post {
             try {
                 built = buildSnapshot()
+            } catch (_: Throwable) {
             } finally {
                 latch.countDown()
             }
@@ -233,7 +234,7 @@ class OverlayA11yService : AccessibilityService() {
         lateinit var c: TvEventsClient
         c = TvEventsClient(
             pc.host, pc.port,
-            onConnecting = { main.post { if (c === client) sseState = SSE_CONNECTING } },
+            onConnecting = { main.post { if (c === client && sseState != SSE_FAILED) sseState = SSE_CONNECTING } },
             onOpen = { main.post { if (c === client) guarded("open") { onOpen(pc) } } },
             onEvent = { name, data -> main.post { if (c === client) guarded("event $name") { onEvent(name, data) } } },
             onFailure = { reason -> main.post { if (c === client) guarded("failure") { onFailure(reason) } } },
