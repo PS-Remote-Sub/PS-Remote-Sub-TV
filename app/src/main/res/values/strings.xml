@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">PSRS TV Overlay</string>
-    <string name="a11y_description">วาดซับไทยจาก PS Remote Sub ทับภาพทีวี และอ่านเฉพาะแถบแจ้งชื่อช่องสัญญาณ (Input) ของทีวีเท่านั้น</string>
+    <string name="a11y_description">วาดซับไทยจาก PS Remote Sub ทับภาพบนทีวี ไม่อ่านเนื้อหาบนจอ</string>
     <string name="service_on">บริการซับ: เปิดอยู่</string>
     <string name="service_off">บริการซับ: ยังไม่เปิด (เปิดใน การตั้งค่า → การเข้าถึง หรือใช้คำสั่ง adb ใน README)</string>
     <string name="pc_connected">คอม: เชื่อมต่อกับ %1$s (%2$s) แล้ว</string>
