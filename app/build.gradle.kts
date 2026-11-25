@@ -21,8 +21,8 @@ android {
         applicationId = "th.psrs.tvoverlay"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.0"
+        versionCode = 3
+        versionName = "1.1.0"
     }
 
     val releaseStore = signingValue("storeFile", "PSRS_TV_KEYSTORE")

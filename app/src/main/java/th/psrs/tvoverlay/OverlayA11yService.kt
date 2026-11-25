@@ -10,6 +10,8 @@ import android.os.SystemClock
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
+import java.io.FileDescriptor
+import java.io.PrintWriter
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -324,6 +326,18 @@ class OverlayA11yService : AccessibilityService() {
     private fun prefs() = getSharedPreferences(PREFS, MODE_PRIVATE)
 
     override fun onInterrupt() = Unit
+
+    /** `adb shell dumpsys activity service ...`: state block, `---`, then the log (fallback to the provider). */
+    override fun dump(fd: FileDescriptor?, writer: PrintWriter?, args: Array<out String>?) {
+        try {
+            writer ?: return
+            writer.print(DiagState.text())
+            writer.println("---")
+            writer.print(DiagLog.readAll())
+            writer.flush()
+        } catch (_: Throwable) {
+        }
+    }
 
     override fun onUnbind(intent: Intent?): Boolean {
         DiagLog.i("service unbind")

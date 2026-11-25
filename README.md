@@ -92,6 +92,27 @@ adb shell settings get secure enabled_accessibility_services
 3. สลับไปช่อง HDMI ของ PS5 แล้วเล่น ซับไทยจะขึ้นทับซับอังกฤษ ปิดหรือหยุดซับชั่วคราวจากคอม (`Ctrl+Alt+Shift+P`) ซับต้องหายทันที
 4. ปรับตำแหน่งให้ตรงภาพได้ที่ปุ่ม **ปรับตำแหน่งบนทีวี** ในแอปคอม
 
+## ข้อมูลแก้ปัญหา
+
+แอปบนทีวีเก็บบันทึกการทำงานไว้เองเพื่อไว้ไล่ปัญหา ไม่เก็บข้อความซับหรือคำแปลเลย และ PcId ของคอมจะเก็บเป็นค่าแฮช 8 ตัวอักษรเท่านั้น ไม่เก็บชื่อเครื่อง
+
+- `diag.log` และ `diag.1.log` ในโฟลเดอร์ `files` ของแอป (หมุนไฟล์ทุก 256 KB)
+- `crash.txt` บันทึกข้อผิดพลาดที่ทำให้แอปปิดครั้งล่าสุด
+
+อ่านผ่าน adb ได้ 3 ที่อยู่ (ต้องใช้ `adb shell` เพราะผู้ให้ข้อมูลถูกป้องกันด้วยสิทธิ์ `DUMP` แอปอื่นบนทีวีอ่านไม่ได้):
+
+```powershell
+adb shell content read --uri content://th.psrs.tvoverlay.diag/state
+adb shell content read --uri content://th.psrs.tvoverlay.diag/log
+adb shell content read --uri content://th.psrs.tvoverlay.diag/crash
+```
+
+ทางสำรองถ้า `content read` ใช้ไม่ได้ (ได้สถานะ แถว `---` แล้วตามด้วยบันทึก แต่ต้องเปิดบริการการเข้าถึงอยู่):
+
+```powershell
+adb shell dumpsys activity service th.psrs.tvoverlay/.OverlayA11yService
+```
+
 ## Signing
 
 ไฟล์ release เซ็นด้วยคีย์ของเราเอง:

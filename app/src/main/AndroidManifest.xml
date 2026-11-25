@@ -11,6 +11,7 @@
 
     <!-- The PC's subtitle server is plain HTTP on the LAN. -->
     <application
+        android:name=".App"
         android:label="@string/app_name"
         android:icon="@drawable/banner"
         android:banner="@drawable/banner"
@@ -42,5 +43,14 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/overlay_a11y" />
         </service>
+
+        <!-- Diagnostics for adb: only the shell (holder of DUMP) can read or write. -->
+        <provider
+            android:name=".DiagProvider"
+            android:authorities="th.psrs.tvoverlay.diag"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            android:readPermission="android.permission.DUMP"
+            android:writePermission="android.permission.DUMP" />
     </application>
 </manifest>
