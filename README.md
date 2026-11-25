@@ -63,6 +63,13 @@ adb install -r app\build\outputs\apk\release\app-release.apk
 
 4. เปิดบริการการเข้าถึง (Accessibility) ของแอป **ต้องเพิ่มต่อท้ายรายการเดิม** ห้ามเขียนทับ ไม่งั้นบริการอื่นที่เปิดอยู่จะหลุด (ปุ่ม **ติดตั้งบนทีวี** ในแอปคอมทำขั้นตอนนี้ให้อัตโนมัติ):
 
+   บน Android 13 ขึ้นไป ปลด restricted settings ก่อน ไม่งั้น Google TV บางรุ่น (TCL, Sony) จะปิดบริการกลับเอง (Android 12 ลงไปจะขึ้น error ว่าไม่รู้จัก op นี้ ข้ามไปได้):
+
+```powershell
+adb shell appops set th.psrs.tvoverlay ACCESS_RESTRICTED_SETTINGS allow
+```
+
+
 ```powershell
 adb shell settings get secure enabled_accessibility_services
 ```
@@ -83,6 +90,12 @@ adb shell settings put secure enabled_accessibility_services "com.a/.A:th.psrs.t
 
 ```powershell
 adb shell settings get secure enabled_accessibility_services
+```
+
+   สุดท้าย ถ้า `adb shell settings get secure accessibility_enabled` ไม่ใช่ `1` ให้เปิด:
+
+```powershell
+adb shell settings put secure accessibility_enabled 1
 ```
 
 ## ทดสอบ
