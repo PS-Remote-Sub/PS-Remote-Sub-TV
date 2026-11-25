@@ -2,7 +2,6 @@ package th.psrs.tvoverlay
 
 import android.content.Context
 import android.net.wifi.WifiManager
-import android.util.Log
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
@@ -76,11 +75,11 @@ class BeaconListener(
                     try {
                         onBeacon(beacon)
                     } catch (e: Exception) {
-                        Log.w("PsrsTv", "beacon callback failed: ${e.message}")
+                        DiagLog.w("beacon callback failed: ${e.message}")
                     }
                 }
             } catch (e: Exception) {
-                if (r.active.get()) Log.w("PsrsTv", "beacon listener error: ${e.message}")
+                if (r.active.get()) DiagLog.w("beacon listener error: ${e.message}")
             } finally {
                 r.socket?.close()
             }

@@ -55,6 +55,12 @@ class OverlayPlannerTest {
         assertNull(p.calibrationFrame)
     }
 
+    @Test fun enabledConfig_drawsZone() {
+        val p = plan(config(enabled = true), listOf(view(Placement.CUSTOM, listOf(row("a")))))
+        assertEquals(1, p.boxes.size)
+        assertNull(p.calibrationFrame)
+    }
+
     @Test fun zoneWithoutRows_drawsNothing() =
         assertTrue(plan(config(), listOf(view(Placement.CUSTOM, emptyList()))).boxes.isEmpty())
 

@@ -7,7 +7,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 
@@ -39,7 +38,7 @@ class MainActivity : Activity() {
             try {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             } catch (e: Exception) {
-                Log.w(TAG, "no accessibility settings screen", e)
+                DiagLog.w("no accessibility settings screen", e)
             }
         }
         button.requestFocus()

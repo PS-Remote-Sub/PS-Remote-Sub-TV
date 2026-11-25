@@ -3,30 +3,28 @@ package th.psrs.tvoverlay
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.graphics.PixelFormat
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.os.SystemClock
-import android.util.Log
-import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
-import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
+import java.io.FileDescriptor
+import java.io.PrintWriter
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Accessibility service that owns one full-screen, untouchable overlay window drawn over whatever the TV shows
  * (including the HDMI input), finds the PC by its beacon, follows its `/tv/events` stream and draws the subtitles.
- * The overlay is shown only while the TV displays the PS5 input (see [InputGate]); drawing never changes that.
+ * The overlay is always attached and visible; the PC alone decides what is drawn (nothing while not connected).
  */
 class OverlayA11yService : AccessibilityService() {
 
     /** Full-screen container for everything drawn over the TV; null while the service is not connected. */
     internal var overlayRoot: FrameLayout? = null
         private set
-
-    private var gate = InputGate(null)
 
     private val main = Handler(Looper.getMainLooper())
     private val state = TvState()
@@ -39,6 +37,21 @@ class OverlayA11yService : AccessibilityService() {
     /** The status line drawn at the top, or null. */
     private var banner: String? = null
     private var renderPending = false
+
+    // ---- Diagnostics state (main thread only; read by the snapshot, which is built on the main thread). ----
+    private var serviceConnected = false
+    private var overlayError: String? = null
+    private var appVersion = "unknown"
+    private var connectedAtMs = 0L
+    private var sseState = SSE_IDLE
+    private var sseLastFailure: String? = null
+    private var beaconCount = 0L
+    private var eventCount = 0L
+    private var renderCount = 0L
+    private var guardedFailureCount = 0L
+    private val seenPcs = HashSet<String>()
+    /** Last successfully built snapshot, returned when the main thread does not answer in time. */
+    @Volatile private var cachedSnapshot: DiagSnapshot? = null
 
     /** Re-checks every second which PC to follow, so one that stops beaconing is dropped. */
     private val tick = object : Runnable {
@@ -60,6 +73,16 @@ class OverlayA11yService : AccessibilityService() {
         super.onServiceConnected()
         stopFeed() // the system may reconnect without destroying us first
         removeOverlay()
+        serviceConnected = true
+        connectedAtMs = SystemClock.elapsedRealtime()
+        appVersion = readAppVersion()
+        beaconCount = 0; eventCount = 0; renderCount = 0; guardedFailureCount = 0
+        seenPcs.clear()
+        sseLastFailure = null
+        overlayError = null
+        cachedSnapshot = null
+        DiagState.supplier = ::snapshotFromAnyThread
+        DiagLog.i("service connected, app $appVersion")
         val root = FrameLayout(this)
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -70,11 +93,74 @@ class OverlayA11yService : AccessibilityService() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         )
-        windowManager().addView(root, params)
+        try {
+            windowManager().addView(root, params)
+        } catch (e: Throwable) {
+            overlayError = "${e.javaClass.simpleName}: ${e.message}"
+            DiagLog.e("overlay addView failed", e)
+            return // keep running without a root: renderer and feed do nothing
+        }
         overlayRoot = root
-        gate = InputGate(prefs().getString(PREF_PS5_PORT, null))
-        updateGate()
+        DiagLog.i("overlay added")
         guarded("feed start") { startFeed(root) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readAppVersion(): String = try {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+        "${info.versionName} ($code)"
+    } catch (e: Exception) {
+        "unknown"
+    }
+
+    // ---- Diagnostics snapshot ----
+
+    /** Callable from any thread: builds on the main thread, falling back to the last cached snapshot. */
+    private fun snapshotFromAnyThread(): DiagSnapshot {
+        if (Looper.myLooper() == Looper.getMainLooper()) return buildSnapshot()
+        var built: DiagSnapshot? = null
+        val latch = CountDownLatch(1)
+        main.post {
+            try {
+                built = buildSnapshot()
+            } catch (_: Throwable) {
+            } finally {
+                latch.countDown()
+            }
+        }
+        val ok = try { latch.await(SNAPSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { false }
+        return (if (ok) built else null) ?: cachedSnapshot ?: throw IllegalStateException("no snapshot available")
+    }
+
+    private fun buildSnapshot(): DiagSnapshot {
+        val now = SystemClock.elapsedRealtime()
+        val pc = connectedPc
+        val config = state.config
+        val drawing = when {
+            sseState != SSE_OPEN -> "no:not-connected"
+            config != null && !config.enabled && !config.calibrating -> "no:pc-off"
+            state.zones.isEmpty() && banner == null -> "no:nothing"
+            else -> "yes"
+        }
+        val snap = DiagSnapshot(
+            appVersion = appVersion,
+            serviceConnected = serviceConnected,
+            overlayAttached = overlayRoot != null,
+            overlayError = overlayError,
+            drawing = drawing,
+            connectedPc = pc?.let { HeardPc(pcIdHash(it.id), it.host, it.port, 0) },
+            sseState = sseState,
+            sseLastFailure = sseLastFailure,
+            heard = picker?.heardList(now).orEmpty().map { (b, age) -> HeardPc(pcIdHash(b.id), b.host, b.port, age) },
+            beacons = beaconCount,
+            events = eventCount,
+            renders = renderCount,
+            guardedFailures = guardedFailureCount,
+            uptimeMs = now - connectedAtMs,
+        )
+        cachedSnapshot = snap
+        return snap
     }
 
     // ---- PC feed: beacon → picker → /tv/events → render. Everything below runs on the main thread. ----
@@ -106,6 +192,7 @@ class OverlayA11yService : AccessibilityService() {
         connectedPc = null
         picker = null
         banner = null
+        sseState = SSE_IDLE
         state.reset()
         renderer?.clear()
         renderer = null
@@ -113,6 +200,8 @@ class OverlayA11yService : AccessibilityService() {
     }
 
     private fun onBeacon(beacon: PcBeacon) = guarded("beacon") {
+        beaconCount++
+        if (seenPcs.add(beacon.id)) DiagLog.i("first beacon from PC ${pcIdHash(beacon.id)} at ${beacon.host}:${beacon.port}")
         picker?.heard(beacon, SystemClock.elapsedRealtime())
         updateConnection()
     }
@@ -131,6 +220,7 @@ class OverlayA11yService : AccessibilityService() {
             }
             return
         }
+        if (current != null) DiagLog.i("PC dropped: ${pcIdHash(current.id)}")
         disconnect()
         if (pick != null) connect(pick)
     }
@@ -139,12 +229,14 @@ class OverlayA11yService : AccessibilityService() {
         picker?.use(pc.id)
         prefs().edit().putString(PREF_LAST_PC, pc.id).apply()
         connectedPc = pc
+        sseState = SSE_CONNECTING
+        DiagLog.i("connecting to PC ${pcIdHash(pc.id)} at ${pc.host}:${pc.port}")
         TvStatus.set(pc, connected = false)
         // Callbacks from a client that was replaced or stopped are dropped (posted before stop, run after).
         lateinit var c: TvEventsClient
         c = TvEventsClient(
             pc.host, pc.port,
-            onConnecting = {},
+            onConnecting = { main.post { if (c === client && sseState != SSE_FAILED) sseState = SSE_CONNECTING } },
             onOpen = { main.post { if (c === client) guarded("open") { onOpen(pc) } } },
             onEvent = { name, data -> main.post { if (c === client) guarded("event $name") { onEvent(name, data) } } },
             onFailure = { reason -> main.post { if (c === client) guarded("failure") { onFailure(reason) } } },
@@ -157,6 +249,7 @@ class OverlayA11yService : AccessibilityService() {
         val old = client
         client = null
         connectedPc = null
+        sseState = SSE_IDLE
         guarded("client stop") { old?.stop() }
         state.reset()
         hideBannerNow()
@@ -165,6 +258,8 @@ class OverlayA11yService : AccessibilityService() {
     }
 
     private fun onOpen(pc: PcBeacon) {
+        sseState = SSE_OPEN
+        DiagLog.i("stream open to PC ${pcIdHash(pc.id)}")
         state.reset() // the PC re-sends its config and every zone on connect
         TvStatus.set(pc, connected = true)
         banner = getString(R.string.banner_connected, pc.name)
@@ -174,11 +269,20 @@ class OverlayA11yService : AccessibilityService() {
     }
 
     private fun onEvent(name: String, data: String) {
-        if (state.apply(name, data)) requestRender()
+        eventCount++
+        val before = state.config
+        val changed = state.apply(name, data)
+        val after = state.config
+        if (after != null && (before?.enabled != after.enabled || before.mode != after.mode)) {
+            DiagLog.i("config: enabled=${after.enabled} mode=${after.mode}")
+        }
+        if (changed) requestRender()
     }
 
     private fun onFailure(reason: String) {
-        Log.i(TAG, "PC stream dropped: $reason")
+        sseState = SSE_FAILED
+        sseLastFailure = reason
+        DiagLog.i("PC stream dropped: $reason")
         // Nothing is drawn while not connected; the client reconnects by itself.
         state.reset()
         TvStatus.connected = false
@@ -203,6 +307,7 @@ class OverlayA11yService : AccessibilityService() {
         val root = overlayRoot ?: return
         if (root.width == 0 || root.height == 0) return // not laid out yet; the layout listener renders then
         r.render(state, root.width, root.height, banner)
+        renderCount++
     }
 
     /** Runs [block], logging instead of throwing: an exception must never kill the service. */
@@ -210,97 +315,49 @@ class OverlayA11yService : AccessibilityService() {
         try {
             block()
         } catch (e: Exception) {
-            Log.w(TAG, "$what failed", e)
+            guardedFailureCount++
+            DiagLog.w("$what failed", e)
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val type = event?.eventType ?: return
-        when (type) {
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> updateGate()
-            // The input banner may change inside an already-open tvx window; other apps' content changes are irrelevant.
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ->
-                if (event.packageName == InputGate.TVX_PACKAGE) updateGate()
-        }
-    }
-
-    /**
-     * Re-reads the foreground app (from the windows list: event.packageName can be stale) and, while the TV's input
-     * app is on top, the banner texts of all its windows; then shows or hides the overlay.
-     * Never throws: a crash would kill the service.
-     */
-    private fun updateGate() {
-        try {
-            // Each window's root is fetched once per event and recycled right after use.
-            val apps = ArrayList<AppWindow>()
-            for (w in windows) {
-                if (w.type != AccessibilityWindowInfo.TYPE_APPLICATION) {
-                    releaseWindow(w)
-                    continue
-                }
-                val root = w.root
-                val windowPkg = root?.packageName?.toString()
-                val texts = ArrayList<String>()
-                if (root != null && windowPkg == InputGate.TVX_PACKAGE) collectTexts(root, 0, texts)
-                release(root)
-                apps.add(AppWindow(w.isActive || w.isFocused, windowPkg, texts))
-                releaseWindow(w)
-            }
-            val foreground = apps.firstOrNull { it.active } ?: apps.firstOrNull { it.pkg != packageName }
-            val pkg = foreground?.pkg?.takeIf { it != packageName }
-            gate.foreground(pkg)
-            if (pkg == InputGate.TVX_PACKAGE) {
-                val texts = apps.filter { it.pkg == InputGate.TVX_PACKAGE }.flatMap { it.texts }
-                val before = gate.ps5Port
-                gate.banner(texts)
-                val after = gate.ps5Port
-                if (after != before) prefs().edit().putString(PREF_PS5_PORT, after).apply()
-            }
-            overlayRoot?.visibility = if (gate.visible) View.VISIBLE else View.GONE
-        } catch (e: Exception) {
-            Log.w(TAG, "input gate update failed", e)
-        }
-    }
-
-    private fun collectTexts(node: AccessibilityNodeInfo, depth: Int, out: MutableList<String>) {
-        if (depth > MAX_DEPTH) return
-        node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)
-        node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            collectTexts(child, depth + 1, out)
-            release(child)
-        }
-    }
-
-    /** One application window as seen in a single event. */
-    private class AppWindow(val active: Boolean, val pkg: String?, val texts: List<String>)
-
-    @Suppress("DEPRECATION")
-    private fun releaseWindow(window: AccessibilityWindowInfo) {
-        if (Build.VERSION.SDK_INT < 33) window.recycle()
-    }
-
-    /** Nodes must be recycled before API 33 (where recycle() became a no-op); never touch [node] afterwards. */
-    @Suppress("DEPRECATION")
-    private fun release(node: AccessibilityNodeInfo?) {
-        if (node != null && Build.VERSION.SDK_INT < 33) node.recycle()
-    }
+    /** The PC alone decides what is drawn; accessibility events are not needed. */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     private fun prefs() = getSharedPreferences(PREFS, MODE_PRIVATE)
 
     override fun onInterrupt() = Unit
 
+    /** `adb shell dumpsys activity service ...`: state block, `---`, then the log (fallback to the provider). */
+    override fun dump(fd: FileDescriptor?, writer: PrintWriter?, args: Array<out String>?) {
+        try {
+            writer ?: return
+            writer.print(DiagState.text())
+            writer.println("---")
+            writer.print(DiagLog.readAll())
+            writer.flush()
+        } catch (_: Throwable) {
+        }
+    }
+
     override fun onUnbind(intent: Intent?): Boolean {
+        DiagLog.i("service unbind")
+        markDisconnected()
         stopFeed()
         removeOverlay()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        DiagLog.i("service destroy")
+        markDisconnected()
         stopFeed()
         removeOverlay()
         super.onDestroy()
+    }
+
+    private fun markDisconnected() {
+        serviceConnected = false
+        DiagState.supplier = null
     }
 
     private fun windowManager() = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -313,12 +370,14 @@ class OverlayA11yService : AccessibilityService() {
     }
 
     private companion object {
-        const val TAG = "PsrsTv"
+        const val SSE_IDLE = "idle"
+        const val SSE_CONNECTING = "connecting"
+        const val SSE_OPEN = "open"
+        const val SSE_FAILED = "failed"
+        const val SNAPSHOT_TIMEOUT_MS = 1_000L
         const val PREFS = "psrs"
-        const val PREF_PS5_PORT = "ps5Port"
         const val PREF_LAST_PC = "lastPcId"
         const val TICK_MS = 1_000L
         const val BANNER_MS = 5_000L
-        const val MAX_DEPTH = 25
     }
 }
