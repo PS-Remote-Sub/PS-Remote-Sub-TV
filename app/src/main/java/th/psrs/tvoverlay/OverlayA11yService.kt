@@ -3,30 +3,24 @@ package th.psrs.tvoverlay
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.graphics.PixelFormat
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
-import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
 
 /**
  * Accessibility service that owns one full-screen, untouchable overlay window drawn over whatever the TV shows
  * (including the HDMI input), finds the PC by its beacon, follows its `/tv/events` stream and draws the subtitles.
- * The overlay is shown only while the TV displays the PS5 input (see [InputGate]); drawing never changes that.
+ * The overlay is always attached and visible; the PC alone decides what is drawn (nothing while not connected).
  */
 class OverlayA11yService : AccessibilityService() {
 
     /** Full-screen container for everything drawn over the TV; null while the service is not connected. */
     internal var overlayRoot: FrameLayout? = null
         private set
-
-    private var gate = InputGate(null)
 
     private val main = Handler(Looper.getMainLooper())
     private val state = TvState()
@@ -72,8 +66,6 @@ class OverlayA11yService : AccessibilityService() {
         )
         windowManager().addView(root, params)
         overlayRoot = root
-        gate = InputGate(prefs().getString(PREF_PS5_PORT, null))
-        updateGate()
         guarded("feed start") { startFeed(root) }
     }
 
@@ -214,78 +206,8 @@ class OverlayA11yService : AccessibilityService() {
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val type = event?.eventType ?: return
-        when (type) {
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> updateGate()
-            // The input banner may change inside an already-open tvx window; other apps' content changes are irrelevant.
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ->
-                if (event.packageName == InputGate.TVX_PACKAGE) updateGate()
-        }
-    }
-
-    /**
-     * Re-reads the foreground app (from the windows list: event.packageName can be stale) and, while the TV's input
-     * app is on top, the banner texts of all its windows; then shows or hides the overlay.
-     * Never throws: a crash would kill the service.
-     */
-    private fun updateGate() {
-        try {
-            // Each window's root is fetched once per event and recycled right after use.
-            val apps = ArrayList<AppWindow>()
-            for (w in windows) {
-                if (w.type != AccessibilityWindowInfo.TYPE_APPLICATION) {
-                    releaseWindow(w)
-                    continue
-                }
-                val root = w.root
-                val windowPkg = root?.packageName?.toString()
-                val texts = ArrayList<String>()
-                if (root != null && windowPkg == InputGate.TVX_PACKAGE) collectTexts(root, 0, texts)
-                release(root)
-                apps.add(AppWindow(w.isActive || w.isFocused, windowPkg, texts))
-                releaseWindow(w)
-            }
-            val foreground = apps.firstOrNull { it.active } ?: apps.firstOrNull { it.pkg != packageName }
-            val pkg = foreground?.pkg?.takeIf { it != packageName }
-            gate.foreground(pkg)
-            if (pkg == InputGate.TVX_PACKAGE) {
-                val texts = apps.filter { it.pkg == InputGate.TVX_PACKAGE }.flatMap { it.texts }
-                val before = gate.ps5Port
-                gate.banner(texts)
-                val after = gate.ps5Port
-                if (after != before) prefs().edit().putString(PREF_PS5_PORT, after).apply()
-            }
-            overlayRoot?.visibility = if (gate.visible) View.VISIBLE else View.GONE
-        } catch (e: Exception) {
-            Log.w(TAG, "input gate update failed", e)
-        }
-    }
-
-    private fun collectTexts(node: AccessibilityNodeInfo, depth: Int, out: MutableList<String>) {
-        if (depth > MAX_DEPTH) return
-        node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)
-        node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            collectTexts(child, depth + 1, out)
-            release(child)
-        }
-    }
-
-    /** One application window as seen in a single event. */
-    private class AppWindow(val active: Boolean, val pkg: String?, val texts: List<String>)
-
-    @Suppress("DEPRECATION")
-    private fun releaseWindow(window: AccessibilityWindowInfo) {
-        if (Build.VERSION.SDK_INT < 33) window.recycle()
-    }
-
-    /** Nodes must be recycled before API 33 (where recycle() became a no-op); never touch [node] afterwards. */
-    @Suppress("DEPRECATION")
-    private fun release(node: AccessibilityNodeInfo?) {
-        if (node != null && Build.VERSION.SDK_INT < 33) node.recycle()
-    }
+    /** The PC alone decides what is drawn; accessibility events are not needed. */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     private fun prefs() = getSharedPreferences(PREFS, MODE_PRIVATE)
 
@@ -315,10 +237,8 @@ class OverlayA11yService : AccessibilityService() {
     private companion object {
         const val TAG = "PsrsTv"
         const val PREFS = "psrs"
-        const val PREF_PS5_PORT = "ps5Port"
         const val PREF_LAST_PC = "lastPcId"
         const val TICK_MS = 1_000L
         const val BANNER_MS = 5_000L
-        const val MAX_DEPTH = 25
     }
 }

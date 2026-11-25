@@ -25,7 +25,7 @@ import kotlin.math.roundToInt
 
 /**
  * Draws [TvState] into the overlay's full-screen [root]: the subtitle boxes [OverlayPlanner] places, the calibration
- * frame, and a status banner. Main thread only. Never changes [root]'s visibility (the input gate owns it).
+ * frame, and a status banner. Main thread only. Never changes [root]'s visibility.
  */
 class OverlayRenderer(private val root: FrameLayout) {
     private val context: Context = root.context
