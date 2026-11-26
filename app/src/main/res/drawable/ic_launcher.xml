@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App icon (same logo as the PC app): blue tile, white speech bubble with subtitle lines. Source: PS-Remote-Sub/tools/app-icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <path android:fillColor="#FF2E58E1"
+        android:pathData="M22,0H74A22,22 0,0 1,96 22V74A22,22 0,0 1,74 96H22A22,22 0,0 1,0 74V22A22,22 0,0 1,22 0Z" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M27,22H69A10,10 0,0 1,79 32V54A10,10 0,0 1,69 64H45L30.5,76.5V64H27A10,10 0,0 1,17 54V32A10,10 0,0 1,27 22Z" />
+    <path android:fillColor="#FFB6C4F5"
+        android:pathData="M31.5,34H53.5A2.5,2.5 0,0 1,53.5 39H31.5A2.5,2.5 0,0 1,31.5 34Z" />
+    <path android:fillColor="#FFF6C448"
+        android:pathData="M28,49A4.5,4.5 0,1 0,37 49A4.5,4.5 0,1 0,28 49Z" />
+    <path android:fillColor="#FF2E58E1"
+        android:pathData="M43,46H64.5A3,3 0,0 1,64.5 52H43A3,3 0,0 1,43 46Z" />
+</vector>
